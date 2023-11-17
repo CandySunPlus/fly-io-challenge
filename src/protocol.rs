@@ -14,6 +14,10 @@ pub enum MessageType {
     EchoOk {
         echo: String,
     },
+    Generate {},
+    GenerateOk {
+        id: String,
+    },
 }
 
 impl MessageType {
@@ -26,6 +30,9 @@ impl MessageType {
                 node_id: _,
                 node_ids: _,
             } => MessageType::InitOk {},
+            MessageType::Generate {} => MessageType::GenerateOk {
+                id: uuid::Uuid::new_v4().to_string(),
+            },
             _ => unreachable!(),
         }
     }
