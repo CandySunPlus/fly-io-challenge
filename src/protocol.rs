@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,6 +20,18 @@ pub enum MessageType {
     GenerateOk {
         id: String,
     },
+    Broadcast {
+        message: u32,
+    },
+    BroadcastOk {},
+    Read {},
+    ReadOk {
+        messages: Vec<u32>,
+    },
+    Topology {
+        topology: HashMap<String, Vec<String>>,
+    },
+    TopolofyOk {},
 }
 
 impl MessageType {
