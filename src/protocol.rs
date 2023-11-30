@@ -72,7 +72,7 @@ impl Message {
         }
     }
 
-    pub fn r#type(&self) -> &MessageType {
+    pub fn payload(&self) -> &MessageType {
         &self.body.payload
     }
 

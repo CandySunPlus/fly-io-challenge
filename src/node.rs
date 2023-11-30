@@ -13,7 +13,7 @@ pub struct Node {
 
 impl Node {
     pub async fn process(&mut self, msg: Message) -> Result<()> {
-        match msg.r#type() {
+        match msg.payload() {
             MessageType::Echo { echo } => self.reply(
                 &msg,
                 MessageType::EchoOk {
@@ -39,7 +39,7 @@ impl Node {
                     for neighbor in self.neighbors.iter() {
                         // don't send back to the sender
                         if neighbor != msg.src() {
-                            self.send(neighbor, msg.r#type().clone())?;
+                            self.send(neighbor, msg.payload().clone())?;
                         }
                     }
                 }
