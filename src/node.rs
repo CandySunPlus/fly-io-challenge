@@ -34,11 +34,13 @@ impl Node {
                 },
             ),
             MessageType::Broadcast { message } => {
-                self.ids.push(message.to_owned());
-                if !msg.id().is_none() {
+                if !self.ids.contains(message) {
+                    self.ids.push(message.to_owned());
                     for neighbor in self.neighbors.iter() {
                         self.send(neighbor, msg.r#type().clone())?;
                     }
+                }
+                if !msg.id().is_none() {
                     self.reply(&msg, MessageType::BroadcastOk {});
                 }
             }
