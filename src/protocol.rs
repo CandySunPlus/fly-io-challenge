@@ -80,6 +80,14 @@ impl Message {
         self.body.msg_id
     }
 
+    pub fn src(&self) -> &str {
+        &self.src
+    }
+
+    pub fn dest(&self) -> &str {
+        &self.dest
+    }
+
     pub fn create_reply_msg(&self, msg_id: Option<u32>, msg_type: MessageType) -> Option<Message> {
         if self.id().is_none() {
             None

@@ -37,7 +37,10 @@ impl Node {
                 if !self.ids.contains(message) {
                     self.ids.push(message.to_owned());
                     for neighbor in self.neighbors.iter() {
-                        self.send(neighbor, msg.r#type().clone())?;
+                        // don't send back to the sender
+                        if neighbor != msg.src() {
+                            self.send(neighbor, msg.r#type().clone())?;
+                        }
                     }
                 }
                 if !msg.id().is_none() {
