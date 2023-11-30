@@ -1,3 +1,4 @@
+use maelstrom_echo::node::Node;
 use maelstrom_echo::protocol::Message;
 use tokio::io::{self, AsyncBufReadExt};
 use tokio::sync::mpsc;
@@ -17,12 +18,9 @@ async fn main() -> maelstrom_echo::Result<()> {
         }
     });
 
+    let mut node = Node::default();
     while let Some(msg) = rx.recv().await {
-        let reply = msg.reply().await;
-        println!(
-            "{}",
-            serde_json::to_string(&reply).expect("json serialize error")
-        );
+        node.process(msg).await.unwrap();
     }
     Ok(())
 }

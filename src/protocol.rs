@@ -1,15 +1,8 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
-fn ids() -> &'static Arc<Mutex<Vec<u32>>> {
-    static IDS: OnceLock<Arc<Mutex<Vec<u32>>>> = OnceLock::new();
-    IDS.get_or_init(|| Arc::new(Mutex::new(vec![])))
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageType {
     Init {
@@ -39,32 +32,10 @@ pub enum MessageType {
         topology: HashMap<String, Vec<String>>,
     },
     TopologyOk {},
-}
-
-impl MessageType {
-    pub async fn reply_type(&self) -> MessageType {
-        match self {
-            MessageType::Echo { echo } => MessageType::EchoOk {
-                echo: echo.to_owned(),
-            },
-            MessageType::Init {
-                node_id: _,
-                node_ids: _,
-            } => MessageType::InitOk {},
-            MessageType::Generate {} => MessageType::GenerateOk {
-                id: uuid::Uuid::new_v4().to_string(),
-            },
-            MessageType::Broadcast { message } => {
-                ids().lock().await.push(message.to_owned());
-                MessageType::BroadcastOk {}
-            }
-            MessageType::Read {} => MessageType::ReadOk {
-                messages: ids().lock().await.clone(),
-            },
-            MessageType::Topology { topology: _ } => MessageType::TopologyOk {},
-            _ => unreachable!(),
-        }
-    }
+    Error {
+        code: u32,
+        text: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,6 +46,16 @@ pub struct MessageBody {
     in_reply_to: Option<u32>,
 }
 
+impl MessageBody {
+    pub fn new(r#type: MessageType, msg_id: Option<u32>, in_reply_to: Option<u32>) -> Self {
+        Self {
+            r#type,
+            msg_id,
+            in_reply_to,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message {
     src: String,
@@ -83,6 +64,14 @@ pub struct Message {
 }
 
 impl Message {
+    pub fn new(src: &str, dest: &str, body: MessageBody) -> Self {
+        Self {
+            src: src.to_owned(),
+            dest: dest.to_owned(),
+            body,
+        }
+    }
+
     pub fn r#type(&self) -> &MessageType {
         &self.body.r#type
     }
@@ -91,16 +80,19 @@ impl Message {
         self.body.msg_id
     }
 
-    // generate a reply message
-    pub async fn reply(&self) -> Message {
-        Message {
-            src: self.dest.clone(),
-            dest: self.src.clone(),
-            body: MessageBody {
-                r#type: self.body.r#type.reply_type().await,
-                msg_id: self.body.msg_id,
-                in_reply_to: self.body.msg_id,
-            },
+    pub fn create_reply_msg(&self, msg_id: Option<u32>, msg_type: MessageType) -> Option<Message> {
+        if self.id().is_none() {
+            None
+        } else {
+            Some(Message {
+                src: self.dest.clone(),
+                dest: self.src.clone(),
+                body: MessageBody {
+                    r#type: msg_type,
+                    msg_id,
+                    in_reply_to: self.id(),
+                },
+            })
         }
     }
 }
