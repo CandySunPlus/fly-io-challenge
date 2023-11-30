@@ -18,7 +18,7 @@ async fn main() -> maelstrom_echo::Result<()> {
     });
 
     while let Some(msg) = rx.recv().await {
-        let reply = msg.reply();
+        let reply = msg.reply().await;
         println!(
             "{}",
             serde_json::to_string(&reply).expect("json serialize error")

@@ -1,6 +1,13 @@
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
+
+fn ids() -> &'static Arc<Mutex<Vec<u32>>> {
+    static IDS: OnceLock<Arc<Mutex<Vec<u32>>>> = OnceLock::new();
+    IDS.get_or_init(|| Arc::new(Mutex::new(vec![])))
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -31,11 +38,11 @@ pub enum MessageType {
     Topology {
         topology: HashMap<String, Vec<String>>,
     },
-    TopolofyOk {},
+    TopologyOk {},
 }
 
 impl MessageType {
-    pub fn reply_type(&self) -> MessageType {
+    pub async fn reply_type(&self) -> MessageType {
         match self {
             MessageType::Echo { echo } => MessageType::EchoOk {
                 echo: echo.to_owned(),
@@ -47,6 +54,14 @@ impl MessageType {
             MessageType::Generate {} => MessageType::GenerateOk {
                 id: uuid::Uuid::new_v4().to_string(),
             },
+            MessageType::Broadcast { message } => {
+                ids().lock().await.push(message.to_owned());
+                MessageType::BroadcastOk {}
+            }
+            MessageType::Read {} => MessageType::ReadOk {
+                messages: ids().lock().await.clone(),
+            },
+            MessageType::Topology { topology: _ } => MessageType::TopologyOk {},
             _ => unreachable!(),
         }
     }
@@ -76,12 +91,13 @@ impl Message {
         self.body.msg_id
     }
 
-    pub fn reply(&self) -> Message {
+    // generate a reply message
+    pub async fn reply(&self) -> Message {
         Message {
             src: self.dest.clone(),
             dest: self.src.clone(),
             body: MessageBody {
-                r#type: self.body.r#type.reply_type(),
+                r#type: self.body.r#type.reply_type().await,
                 msg_id: self.body.msg_id,
                 in_reply_to: self.body.msg_id,
             },
