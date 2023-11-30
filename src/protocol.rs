@@ -9,29 +9,29 @@ pub enum MessageType {
         node_id: String,
         node_ids: Vec<String>,
     },
-    InitOk {},
+    InitOk,
     Echo {
         echo: String,
     },
     EchoOk {
         echo: String,
     },
-    Generate {},
+    Generate,
     GenerateOk {
         id: String,
     },
     Broadcast {
         message: u32,
     },
-    BroadcastOk {},
-    Read {},
+    BroadcastOk,
+    Read,
     ReadOk {
         messages: Vec<u32>,
     },
     Topology {
         topology: HashMap<String, Vec<String>>,
     },
-    TopologyOk {},
+    TopologyOk,
     Error {
         code: u32,
         text: String,
@@ -41,7 +41,7 @@ pub enum MessageType {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageBody {
     #[serde(flatten)]
-    r#type: MessageType,
+    payload: MessageType,
     msg_id: Option<u32>,
     in_reply_to: Option<u32>,
 }
@@ -49,7 +49,7 @@ pub struct MessageBody {
 impl MessageBody {
     pub fn new(r#type: MessageType, msg_id: Option<u32>, in_reply_to: Option<u32>) -> Self {
         Self {
-            r#type,
+            payload: r#type,
             msg_id,
             in_reply_to,
         }
@@ -73,7 +73,7 @@ impl Message {
     }
 
     pub fn r#type(&self) -> &MessageType {
-        &self.body.r#type
+        &self.body.payload
     }
 
     pub fn id(&self) -> Option<u32> {
@@ -96,7 +96,7 @@ impl Message {
                 src: self.dest.clone(),
                 dest: self.src.clone(),
                 body: MessageBody {
-                    r#type: msg_type,
+                    payload: msg_type,
                     msg_id,
                     in_reply_to: self.id(),
                 },
