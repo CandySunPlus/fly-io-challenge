@@ -44,7 +44,7 @@ where
 
     let mut node = N::from_init(init);
 
-    while let Some(line) = stdin.next() {
+    for line in stdin {
         let line = line.context("input from STDIN cannot be read")?;
 
         let input = serde_json::from_str::<Message<P>>(&line)
