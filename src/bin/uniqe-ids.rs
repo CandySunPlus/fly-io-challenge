@@ -4,7 +4,6 @@ use rustrom::main_loop;
 use rustrom::node::Node;
 use rustrom::protocol::{Init, Message};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -33,7 +32,7 @@ impl Node<Payload> for UniqeIdNode {
     fn step(&mut self, input: Message<Payload>, mut output: &mut StdoutLock) -> anyhow::Result<()> {
         let payload = match input.body.payload {
             Payload::Generate => Payload::GenerateOk {
-                id: Uuid::new_v4().to_string(),
+                id: format!("{}-{}", self.id, self.msg_id),
             },
             Payload::GenerateOk { .. } => unreachable!(),
         };
