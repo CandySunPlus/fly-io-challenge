@@ -19,10 +19,7 @@ struct UniqeIdNode {
 }
 
 impl Node<Payload> for UniqeIdNode {
-    fn from_init(init: Init) -> Self
-    where
-        Self: Sized,
-    {
+    fn from_init(init: Init) -> Self {
         Self {
             id: init.node_id,
             msg_id: 0,

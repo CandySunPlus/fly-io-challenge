@@ -48,7 +48,7 @@ where
         let line = line.context("input from STDIN cannot be read")?;
 
         let input = serde_json::from_str::<Message<P>>(&line)
-            .context("input from STDIN cannot be deserialized")?;
+            .context(format!("input from STDIN cannot be deserialized: {}", line))?;
 
         node.step(input, &mut stdout).context("Node step failed")?;
     }
