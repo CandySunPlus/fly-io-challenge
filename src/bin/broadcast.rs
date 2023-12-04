@@ -66,18 +66,16 @@ impl Node<Payload> for BroadcastNode {
                     return Ok(());
                 }
             }
-            Payload::BroadcastOk => unreachable!(),
             Payload::Read => Payload::ReadOk {
                 messages: self.messages.clone(),
             },
-            Payload::ReadOk { .. } => unreachable!(),
             Payload::Topology { ref topology } => {
                 if let Some(neighbors) = topology.get(&self.id) {
                     self.neighbors = neighbors.clone();
                 }
                 Payload::TopologyOk
             }
-            Payload::TopologyOk => unreachable!(),
+            Payload::ReadOk { .. } | Payload::BroadcastOk | Payload::TopologyOk => unreachable!(),
         };
         let reply = input.into_reply_with_payload(Some(&mut self.msg_id), payload);
         reply.send(output)
