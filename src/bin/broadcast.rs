@@ -47,8 +47,19 @@ impl Node<Payload> for BroadcastNode {
             Payload::Broadcast { message: ref msg } => {
                 if !self.messages.contains(msg) {
                     self.messages.push(msg.clone());
+                    for neighbor in &self.neighbors {
+                        let mut broadcast_msg = input.clone();
+                        broadcast_msg.dst = neighbor.clone();
+                        broadcast_msg.src = self.id.clone();
+                        broadcast_msg.body.id = None;
+                        broadcast_msg.send(output)?;
+                    }
                 }
-                Payload::BroadcastOk
+                if input.body.id.is_some() {
+                    Payload::BroadcastOk
+                } else {
+                    return Ok(());
+                }
             }
             Payload::BroadcastOk => unreachable!(),
             Payload::Read => Payload::ReadOk {
