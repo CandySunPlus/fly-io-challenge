@@ -34,7 +34,7 @@ struct BroadcastNode {
 
 impl Node<Payload> for BroadcastNode {
     fn from_init(init: Init) -> Self {
-        BroadcastNode {
+        Self {
             id: init.node_id,
             msg_id: 1,
             messages: vec![],
