@@ -56,6 +56,7 @@ impl Node<Payload> for BroadcastNode {
                         broadcast_msg.dst = neighbor.clone();
                         broadcast_msg.src = self.id.clone();
                         broadcast_msg.body.id = None;
+                        broadcast_msg.body.in_reply_to = None;
                         broadcast_msg.send(output)?;
                     }
                 }
