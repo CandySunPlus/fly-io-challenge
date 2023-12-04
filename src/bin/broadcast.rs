@@ -48,6 +48,10 @@ impl Node<Payload> for BroadcastNode {
                 if !self.messages.contains(msg) {
                     self.messages.push(msg.clone());
                     for neighbor in &self.neighbors {
+                        // Don't send the message back to the sender
+                        if input.src == neighbor.as_str() {
+                            continue;
+                        }
                         let mut broadcast_msg = input.clone();
                         broadcast_msg.dst = neighbor.clone();
                         broadcast_msg.src = self.id.clone();
