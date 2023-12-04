@@ -26,7 +26,7 @@ impl Node<Payload> for UniqeIdNode {
         }
     }
 
-    fn step(&mut self, input: Message<Payload>, mut output: &mut StdoutLock) -> anyhow::Result<()> {
+    fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
         let payload = match input.body.payload {
             Payload::Generate => Payload::GenerateOk {
                 id: format!("{}-{}", self.id, self.msg_id),
@@ -36,7 +36,7 @@ impl Node<Payload> for UniqeIdNode {
 
         let reply = input.into_reply_with_payload(Some(&mut self.msg_id), payload);
 
-        reply.send(&mut output)
+        reply.send(output)
     }
 }
 
