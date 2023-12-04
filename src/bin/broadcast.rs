@@ -46,7 +46,7 @@ impl Node<Payload> for BroadcastNode {
         let payload = match input.body.payload {
             Payload::Broadcast { message: ref msg } => {
                 if !self.messages.contains(msg) {
-                    self.messages.push(msg.clone());
+                    self.messages.push(*msg);
                     for neighbor in &self.neighbors {
                         // Don't send the message back to the sender
                         if input.src == neighbor.as_str() {
