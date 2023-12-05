@@ -60,7 +60,7 @@ impl NeedReplyMessage {
 
     fn poll(&mut self) {
         let mut inner_guard = self.inner.lock().unwrap();
-        (*inner_guard).status = match inner_guard.status {
+        inner_guard.status = match inner_guard.status {
             Status::UnSend => Status::Pending,
             Status::Pending => Status::Done,
             _ => unreachable!(),
@@ -86,19 +86,23 @@ impl Node<Payload> for BroadcastNode {
         thread::spawn(move || {
             while let Ok(msg) = rx.recv() {
                 let inner_guard = msg.inner.lock().unwrap();
-                match inner_guard.status {
-                    Status::UnSend => {
-                        let mut stdout = std::io::stdout().lock();
-                        inner_guard.message.send(&mut stdout).unwrap();
-                        let mut msg = msg.clone();
-                        msg.poll();
-                        tx_rc.send(msg).unwrap();
-                    }
-                    Status::Pending => {
-                        tx_rc.send(msg.clone()).unwrap();
-                    }
-                    Status::Done => {
-                        eprintln!("send {:?} successful", inner_guard);
+                if let Payload::Broadcast { message } = inner_guard.message.body.payload {
+                    match inner_guard.status {
+                        Status::UnSend => {
+                            let mut stdout = std::io::stdout().lock();
+                            inner_guard.message.send(&mut stdout).unwrap();
+                            eprintln!("send {message} to {}", inner_guard.message.dst);
+                            drop(inner_guard);
+                            let mut msg = msg.clone();
+                            msg.poll();
+                            tx_rc.send(msg).unwrap();
+                        }
+                        Status::Pending => {
+                            tx_rc.send(msg.clone()).unwrap();
+                        }
+                        Status::Done => {
+                            eprintln!("send {message} to {} successful", inner_guard.message.dst);
+                        }
                     }
                 }
             }
@@ -142,11 +146,10 @@ impl Node<Payload> for BroadcastNode {
                         self.message_tx
                             .send(need_reply_message)
                             .context("failed to send broadcast to channel")?;
-
-                        eprintln!("send {msg} to {neighbor}");
                     }
                 }
                 if input.body.id.is_some() {
+                    eprintln!("send broadcast ok to {}", input.src);
                     Payload::BroadcastOk
                 } else {
                     return Ok(());
@@ -164,7 +167,6 @@ impl Node<Payload> for BroadcastNode {
             Payload::BroadcastOk => {
                 if let Some(msg_id) = input.body.in_reply_to {
                     if let Some(callback) = self.callbacks.remove(&msg_id) {
-                        eprintln!("callback for msg_id: {msg_id} from {}", input.src);
                         callback();
                     }
                 }

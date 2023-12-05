@@ -18,13 +18,13 @@ where
     let mut stdin = stdin.lines();
     let mut stdout = std::io::stdout().lock();
 
-    let init_msg = serde_json::from_str::<Message<InitPayload>>(
-        &stdin
-            .next()
-            .expect("no init message received")
-            .context("failed to read init message from stdin")?,
-    )
-    .context("init message cloud not be deserialized")?;
+    let init_line = stdin
+        .next()
+        .expect("no init message received")
+        .context("failed to read init message from stdin")?;
+
+    let init_msg = serde_json::from_str::<Message<InitPayload>>(&init_line)
+        .context("init message cloud not be deserialized")?;
 
     let InitPayload::Init(init) = init_msg.body.payload else {
         panic!("first message should be init payload");
@@ -48,7 +48,6 @@ where
 
     for line in stdin {
         let line = line.context("input from STDIN cannot be read")?;
-
         let input = serde_json::from_str::<Message<P>>(&line)
             .context(format!("input from STDIN cannot be deserialized: {}", line))?;
 
