@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::StdoutLock;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,18 +30,41 @@ enum Payload {
 
 type Callback = Box<dyn FnOnce()>;
 
+#[derive(Debug)]
+enum Status {
+    UnSend,
+    Pending,
+    Done,
+}
+
+#[derive(Debug)]
+struct InnerMessage {
+    message: Message<Payload>,
+    status: Status,
+}
+
 #[derive(Debug, Clone)]
 struct NeedReplyMessage {
-    message: Arc<Mutex<Message<Payload>>>,
-    sent: Arc<AtomicBool>,
+    inner: Arc<Mutex<InnerMessage>>,
 }
 
 impl NeedReplyMessage {
     fn new(message: Message<Payload>) -> Self {
         Self {
-            message: Arc::new(Mutex::new(message)),
-            sent: Default::default(),
+            inner: Arc::new(Mutex::new(InnerMessage {
+                message,
+                status: Status::UnSend,
+            })),
         }
+    }
+
+    fn poll(&mut self) {
+        let mut inner_guard = self.inner.lock().unwrap();
+        (*inner_guard).status = match inner_guard.status {
+            Status::UnSend => Status::Pending,
+            Status::Pending => Status::Done,
+            _ => unreachable!(),
+        };
     }
 }
 
@@ -63,15 +85,21 @@ impl Node<Payload> for BroadcastNode {
         let tx_rc = tx.clone();
         thread::spawn(move || {
             while let Ok(msg) = rx.recv() {
-                if msg.sent.load(Ordering::SeqCst) {
-                    msg.message
-                        .lock()
-                        .unwrap()
-                        .send(&mut std::io::stdout().lock())
-                        .unwrap();
-
-                    tx_rc.send(msg).unwrap();
-                    thread::sleep(Duration::from_millis(300));
+                let inner_guard = msg.inner.lock().unwrap();
+                match inner_guard.status {
+                    Status::UnSend => {
+                        let mut stdout = std::io::stdout().lock();
+                        inner_guard.message.send(&mut stdout).unwrap();
+                        let mut msg = msg.clone();
+                        msg.poll();
+                        tx_rc.send(msg).unwrap();
+                    }
+                    Status::Pending => {
+                        tx_rc.send(msg.clone()).unwrap();
+                    }
+                    Status::Done => {
+                        eprintln!("send {:?} successful", inner_guard);
+                    }
                 }
             }
         });
@@ -103,21 +131,19 @@ impl Node<Payload> for BroadcastNode {
                         broadcast_msg.src = self.id.clone();
                         broadcast_msg.body.id = Some(self.msg_id);
                         broadcast_msg.body.in_reply_to = None;
-                        broadcast_msg.send(output)?;
 
                         let need_reply_message = NeedReplyMessage::new(broadcast_msg);
 
-                        let need_reply_message_rc = need_reply_message.clone();
-                        self.callbacks.insert(
-                            self.msg_id,
-                            Box::new(move || {
-                                need_reply_message_rc.sent.store(true, Ordering::SeqCst)
-                            }),
-                        );
+                        let mut need_reply_message_rc = need_reply_message.clone();
+
+                        self.callbacks
+                            .insert(self.msg_id, Box::new(move || need_reply_message_rc.poll()));
 
                         self.message_tx
                             .send(need_reply_message)
                             .context("failed to send broadcast to channel")?;
+
+                        eprintln!("send {msg} to {neighbor}");
                     }
                 }
                 if input.body.id.is_some() {

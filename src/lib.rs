@@ -42,6 +42,8 @@ where
 
     reply.send(&mut stdout)?;
 
+    drop(stdout);
+
     let mut node = N::from_init(init);
 
     for line in stdin {
@@ -50,6 +52,7 @@ where
         let input = serde_json::from_str::<Message<P>>(&line)
             .context(format!("input from STDIN cannot be deserialized: {}", line))?;
 
+        let mut stdout = std::io::stdout().lock();
         node.step(input, &mut stdout).context("Node step failed")?;
     }
 
