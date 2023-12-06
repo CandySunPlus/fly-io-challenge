@@ -45,7 +45,7 @@ struct BroadcastNode {
 impl Node<Payload, InjectedPayload> for BroadcastNode {
     fn from_init(init: Init, tx: Sender<Event<Payload, InjectedPayload>>) -> Self {
         thread::spawn(move || loop {
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(150));
             tx.send(Event::Injected(InjectedPayload::Gossip))
                 .expect("failed to send gossip event");
         });
@@ -131,5 +131,5 @@ impl Node<Payload, InjectedPayload> for BroadcastNode {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<BroadcastNode, _, InjectedPayload>()
+    main_loop::<BroadcastNode, _, _>()
 }
