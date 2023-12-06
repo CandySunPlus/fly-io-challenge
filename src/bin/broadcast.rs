@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
+use rand::Rng;
 use rustrom::main_loop;
 use rustrom::node::{Event, Node};
 use rustrom::protocol::{Body, Init, Message};
@@ -74,12 +75,21 @@ impl Node<Payload, InjectedPayload> for BroadcastNode {
                 InjectedPayload::Gossip => {
                     for n in &self.neighbors {
                         let known_to_n = &self.known[n];
-                        let need_to_known = self
+                        let (already_known, mut need_to_known): (HashSet<_>, HashSet<_>) = self
                             .messages
                             .iter()
-                            .filter(|m| !known_to_n.contains(m))
                             .copied()
-                            .collect();
+                            .partition(|m| known_to_n.contains(m));
+
+                        // Randomly select some known messages to allow them to spread in the network.
+                        let mut rng = rand::thread_rng();
+                        let additional_cap = (10 * need_to_known.len() / 100) as u32;
+                        need_to_known.extend(already_known.iter().filter(|_| {
+                            rng.gen_ratio(
+                                additional_cap.min(already_known.len() as u32),
+                                already_known.len() as u32,
+                            )
+                        }));
 
                         Message {
                             src: self.id.clone(),
