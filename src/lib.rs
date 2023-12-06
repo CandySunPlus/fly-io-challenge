@@ -1,19 +1,24 @@
 use std::fmt::Debug;
 use std::io::BufRead;
+use std::sync::mpsc;
+use std::thread;
 
 use anyhow::Context;
-use node::Node;
+use node::{Event, Node};
 use protocol::{Body, InitPayload, Message};
 use serde::de::DeserializeOwned;
 
 pub mod node;
 pub mod protocol;
 
-pub fn main_loop<N, P>() -> anyhow::Result<()>
+pub fn main_loop<N, P, IP>() -> anyhow::Result<()>
 where
-    N: Node<P>,
-    P: DeserializeOwned + Debug,
+    N: Node<P, IP>,
+    P: DeserializeOwned + Debug + Send + 'static,
+    IP: Send + 'static,
 {
+    let (tx, rx) = mpsc::channel();
+
     let stdin = std::io::stdin().lock();
     let mut stdin = stdin.lines();
     let mut stdout = std::io::stdout().lock();
@@ -42,18 +47,31 @@ where
 
     reply.send(&mut stdout)?;
 
-    drop(stdout);
+    let mut node = N::from_init(init, tx.clone());
 
-    let mut node = N::from_init(init);
+    drop(stdin);
 
-    for line in stdin {
-        let line = line.context("input from STDIN cannot be read")?;
-        let input = serde_json::from_str::<Message<P>>(&line)
-            .context(format!("input from STDIN cannot be deserialized: {}", line))?;
+    let jh = thread::spawn(move || {
+        let stdin = std::io::stdin().lock();
+        for line in stdin.lines() {
+            let line = line.context("input from STDIN cannot be read")?;
+            let input = serde_json::from_str::<Message<P>>(&line)
+                .context(format!("input from STDIN cannot be deserialized: {}", line))?;
+            if tx.send(Event::Message(input)).is_err() {
+                return Ok::<_, anyhow::Error>(());
+            }
+        }
+        let _ = tx.send(Event::EOF);
+        Ok(())
+    });
 
-        let mut stdout = std::io::stdout().lock();
+    for input in rx {
         node.step(input, &mut stdout).context("Node step failed")?;
     }
+
+    jh.join()
+        .expect("stdin thread panicked")
+        .context("stdin thread err")?;
 
     Ok(())
 }

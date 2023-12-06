@@ -1,8 +1,9 @@
 use std::io::StdoutLock;
+use std::sync::mpsc::Sender;
 
 use rustrom::main_loop;
-use rustrom::node::Node;
-use rustrom::protocol::{Init, Message};
+use rustrom::node::{Event, Node};
+use rustrom::protocol::Init;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,14 +21,18 @@ struct EchoNode {
 }
 
 impl Node<Payload> for EchoNode {
-    fn from_init(init: Init) -> Self {
+    fn from_init(init: Init, _inject: Sender<Event<Payload>>) -> Self {
         EchoNode {
             id: init.node_id,
             msg_id: 0,
         }
     }
 
-    fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
+    fn step(&mut self, input: Event<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
+        let Event::Message(input) = input else {
+            panic!("got injected event when there's no event injection");
+        };
+
         let payload = match input.body.payload {
             Payload::Echo { ref echo } => Payload::EchoOk { echo: echo.clone() },
             Payload::EchoOk { .. } => unreachable!(),
@@ -38,5 +43,5 @@ impl Node<Payload> for EchoNode {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<EchoNode, _>()
+    main_loop::<EchoNode, _, _>()
 }

@@ -1,6 +1,7 @@
+use std::io::Write;
+
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Body<Payload> {

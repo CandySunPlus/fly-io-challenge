@@ -1,26 +1,27 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::StdoutLock;
-use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::Context;
 use rustrom::main_loop;
-use rustrom::node::Node;
-use rustrom::protocol::{Init, Message};
+use rustrom::node::{Event, Node};
+use rustrom::protocol::{Body, Init, Message};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Payload {
+    Gossip {
+        seen: HashSet<u32>,
+    },
     Broadcast {
         message: u32,
     },
     BroadcastOk,
     Read,
     ReadOk {
-        messages: Vec<u32>,
+        messages: HashSet<u32>,
     },
     Topology {
         topology: HashMap<String, Vec<String>>,
@@ -28,157 +29,108 @@ enum Payload {
     TopologyOk,
 }
 
-type Callback = Box<dyn FnOnce()>;
-
-#[derive(Debug)]
-enum Status {
-    UnSend,
-    Pending,
-    Done,
-}
-
-#[derive(Debug)]
-struct InnerMessage {
-    message: Message<Payload>,
-    status: Status,
-}
-
-#[derive(Debug, Clone)]
-struct NeedReplyMessage {
-    inner: Arc<Mutex<InnerMessage>>,
-}
-
-impl NeedReplyMessage {
-    fn new(message: Message<Payload>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(InnerMessage {
-                message,
-                status: Status::UnSend,
-            })),
-        }
-    }
-
-    fn poll(&mut self) {
-        let mut inner_guard = self.inner.lock().unwrap();
-        inner_guard.status = match inner_guard.status {
-            Status::UnSend => Status::Pending,
-            Status::Pending => Status::Done,
-            _ => unreachable!(),
-        };
-    }
+enum InjectedPayload {
+    Gossip,
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 struct BroadcastNode {
     id: String,
     msg_id: u32,
-    messages: Vec<u32>,
+    messages: HashSet<u32>,
     neighbors: Vec<String>,
-    callbacks: HashMap<u32, Callback>,
-    message_tx: Sender<NeedReplyMessage>,
+    known: HashMap<String, HashSet<u32>>,
 }
 
-impl Node<Payload> for BroadcastNode {
-    fn from_init(init: Init) -> Self {
-        let (tx, rx) = mpsc::channel::<NeedReplyMessage>();
-
-        let tx_rc = tx.clone();
-        thread::spawn(move || {
-            while let Ok(msg) = rx.recv() {
-                let inner_guard = msg.inner.lock().unwrap();
-                if let Payload::Broadcast { message } = inner_guard.message.body.payload {
-                    match inner_guard.status {
-                        Status::UnSend => {
-                            let mut stdout = std::io::stdout().lock();
-                            inner_guard.message.send(&mut stdout).unwrap();
-                            eprintln!("send {message} to {}", inner_guard.message.dst);
-                            drop(inner_guard);
-                            let mut msg = msg.clone();
-                            msg.poll();
-                            tx_rc.send(msg).unwrap();
-                        }
-                        Status::Pending => {
-                            tx_rc.send(msg.clone()).unwrap();
-                        }
-                        Status::Done => {
-                            eprintln!("send {message} to {} successful", inner_guard.message.dst);
-                        }
-                    }
-                }
-            }
+impl Node<Payload, InjectedPayload> for BroadcastNode {
+    fn from_init(init: Init, tx: Sender<Event<Payload, InjectedPayload>>) -> Self {
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(300));
+            tx.send(Event::Injected(InjectedPayload::Gossip))
+                .expect("failed to send gossip event");
         });
 
         Self {
             id: init.node_id,
             msg_id: 1,
-            messages: vec![],
-            neighbors: vec![],
-            callbacks: Default::default(),
-            message_tx: tx,
+            messages: Default::default(),
+            neighbors: Default::default(),
+            known: init
+                .node_ids
+                .into_iter()
+                .map(|nid| (nid, HashSet::new()))
+                .collect(),
         }
     }
 
-    fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
-        let payload = match input.body.payload {
-            Payload::Broadcast { message: ref msg } => {
-                if !self.messages.contains(msg) {
-                    self.messages.push(*msg);
-                    eprintln!("get {msg} from {}", input.src);
-                    for neighbor in &self.neighbors {
-                        self.msg_id += 1;
-                        // Don't send the message back to the sender again
-                        if input.src == neighbor.as_str() {
-                            continue;
+    fn step(
+        &mut self,
+        input: Event<Payload, InjectedPayload>,
+        output: &mut StdoutLock,
+    ) -> anyhow::Result<()> {
+        match input {
+            Event::EOF => {}
+            Event::Injected(payload) => match payload {
+                InjectedPayload::Gossip => {
+                    for n in &self.neighbors {
+                        let known_to_n = &self.known[n];
+                        let need_to_known = self
+                            .messages
+                            .iter()
+                            .filter(|m| !known_to_n.contains(m))
+                            .copied()
+                            .collect();
+
+                        Message {
+                            src: self.id.clone(),
+                            dst: n.clone(),
+                            body: Body {
+                                id: None,
+                                in_reply_to: None,
+                                payload: Payload::Gossip {
+                                    seen: need_to_known,
+                                },
+                            },
                         }
-                        let mut broadcast_msg = input.clone();
-                        broadcast_msg.dst = neighbor.clone();
-                        broadcast_msg.src = self.id.clone();
-                        broadcast_msg.body.id = Some(self.msg_id);
-                        broadcast_msg.body.in_reply_to = None;
-
-                        let need_reply_message = NeedReplyMessage::new(broadcast_msg);
-
-                        let mut need_reply_message_rc = need_reply_message.clone();
-
-                        self.callbacks
-                            .insert(self.msg_id, Box::new(move || need_reply_message_rc.poll()));
-
-                        self.message_tx
-                            .send(need_reply_message)
-                            .context("failed to send broadcast to channel")?;
+                        .send(output)?;
                     }
                 }
-                if input.body.id.is_some() {
-                    eprintln!("send broadcast ok to {}", input.src);
-                    Payload::BroadcastOk
-                } else {
-                    return Ok(());
-                }
-            }
-            Payload::Read => Payload::ReadOk {
-                messages: self.messages.clone(),
             },
-            Payload::Topology { ref topology } => {
-                if let Some(neighbors) = topology.get(&self.id) {
-                    self.neighbors = neighbors.clone();
-                }
-                Payload::TopologyOk
-            }
-            Payload::BroadcastOk => {
-                if let Some(msg_id) = input.body.in_reply_to {
-                    if let Some(callback) = self.callbacks.remove(&msg_id) {
-                        callback();
+            Event::Message(input) => {
+                let payload = match input.body.payload {
+                    Payload::Gossip { ref seen } => {
+                        if let Some(known) = self.known.get_mut(&input.dst) {
+                            known.extend(seen.iter().copied());
+                        }
+                        self.messages.extend(seen);
+                        None
                     }
+                    Payload::Broadcast { message } => {
+                        self.messages.insert(message);
+                        Some(Payload::BroadcastOk)
+                    }
+                    Payload::Read => Some(Payload::ReadOk {
+                        messages: self.messages.clone(),
+                    }),
+                    Payload::Topology { ref topology } => {
+                        if let Some(neighbors) = topology.get(&self.id) {
+                            self.neighbors = neighbors.clone();
+                        }
+                        Some(Payload::TopologyOk)
+                    }
+                    Payload::BroadcastOk | Payload::ReadOk { .. } | Payload::TopologyOk => None,
+                };
+                if let Some(payload) = payload {
+                    let reply = input.into_reply_with_payload(Some(&mut self.msg_id), payload);
+                    reply.send(output)?;
                 }
-                return Ok(());
             }
-            Payload::ReadOk { .. } | Payload::TopologyOk => unreachable!(),
-        };
-        let reply = input.into_reply_with_payload(Some(&mut self.msg_id), payload);
-        reply.send(output)
+        }
+        Ok(())
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<BroadcastNode, _>()
+    main_loop::<BroadcastNode, _, InjectedPayload>()
 }

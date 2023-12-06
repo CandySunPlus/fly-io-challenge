@@ -1,8 +1,9 @@
 use std::io::StdoutLock;
+use std::sync::mpsc::Sender;
 
 use rustrom::main_loop;
-use rustrom::node::Node;
-use rustrom::protocol::{Init, Message};
+use rustrom::node::{Event, Node};
+use rustrom::protocol::Init;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,14 +20,18 @@ struct UniqeIdNode {
 }
 
 impl Node<Payload> for UniqeIdNode {
-    fn from_init(init: Init) -> Self {
+    fn from_init(init: Init, _inject: Sender<Event<Payload>>) -> Self {
         Self {
             id: init.node_id,
             msg_id: 0,
         }
     }
 
-    fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
+    fn step(&mut self, input: Event<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
+        let Event::Message(input) = input else {
+            panic!("got injected event when there's no event injection");
+        };
+
         let payload = match input.body.payload {
             Payload::Generate => Payload::GenerateOk {
                 id: format!("{}-{}", self.id, self.msg_id),
@@ -41,5 +46,5 @@ impl Node<Payload> for UniqeIdNode {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<UniqeIdNode, _>()
+    main_loop::<UniqeIdNode, _, _>()
 }
