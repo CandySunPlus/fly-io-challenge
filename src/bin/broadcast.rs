@@ -33,7 +33,6 @@ enum InjectedPayload {
     Gossip,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 struct BroadcastNode {
     id: String,
